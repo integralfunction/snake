@@ -4,19 +4,20 @@
 #include <SDL3_ttf/SDL_ttf.h>
 
 /* Constants */
-const int kScreenWidth = 800;
-const int kScreenHeight = 600;
+const Sint32 DEFAULT_WINDOW_WIDTH = 800;
+const Sint32 DEFAULT_WINDOW_HEIGHT = 600;
 const char *kFontName = "Inter-VariableFont.ttf";
 
 struct LTexture gTextTexture;
+
 // why typedef here?
 typedef struct
 {
     SDL_Window *window;
     SDL_Renderer *renderer;
     TTF_Font *font;
-    SDL_Texture *messageTex;
-    SDL_FRect messageDest;
+    Sint32 windowWidth;
+    Sint32 windowHeight;
 } AppState;
 
 struct LTexture
@@ -29,35 +30,35 @@ struct LTexture
     int mHeight;
 };
 
-void init(struct LTexture *a)
+void init(struct LTexture *textTexture)
 {
-    // a->mTexture = NULL;
-    a->mWidth = 0;
-    a->mHeight = 0;
+    textTexture->mTexture = NULL;
+    textTexture->mWidth = 0;
+    textTexture->mHeight = 0;
 }
 
-void destroy(struct LTexture *a)
+void destroy(struct LTexture *textTexture)
 {
-    SDL_DestroyTexture(a->mTexture);
-    a->mWidth = 0;
-    a->mHeight = 0;
+    SDL_DestroyTexture(textTexture->mTexture);
+    textTexture->mWidth = 0;
+    textTexture->mHeight = 0;
 }
 
-int getWidth(struct LTexture *a)
+int getWidth(struct LTexture *textTexture)
 {
-    return a->mWidth;
+    return textTexture->mWidth;
 }
-int getHeight(struct LTexture *a)
+int getHeight(struct LTexture *textTexture)
 {
-    return a->mHeight;
+    return textTexture->mHeight;
 }
 
-SDL_AppResult loadFromRenderedText(struct LTexture *a, void *appstate, char *textMessage, SDL_Color textColor)
+SDL_AppResult loadFromRenderedText(struct LTexture *textTexture, void *appstate, char *textMessage, SDL_Color textColor)
 {
     AppState *as = ((AppState *)appstate);
 
     // Clean up texture if it already exists
-    destroy(a);
+    destroy(textTexture);
 
     SDL_Surface *textSurface = TTF_RenderText_Blended(as->font, textMessage, 0, textColor);
     if (!textSurface)
@@ -66,15 +67,15 @@ SDL_AppResult loadFromRenderedText(struct LTexture *a, void *appstate, char *tex
         return SDL_APP_FAILURE;
     }
 
-    a->mTexture = SDL_CreateTextureFromSurface(as->renderer, textSurface);
-    if (!a->mTexture)
+    textTexture->mTexture = SDL_CreateTextureFromSurface(as->renderer, textSurface);
+    if (!textTexture->mTexture)
     {
         SDL_Log("SDL could not load mTexture! SDL error: %s\n", SDL_GetError());
         return SDL_APP_FAILURE;
     }
 
-    a->mWidth = textSurface->w;
-    a->mHeight = textSurface->h;
+    textTexture->mWidth = textSurface->w;
+    textTexture->mHeight = textSurface->h;
 
     SDL_DestroySurface(textSurface);
 
@@ -84,17 +85,14 @@ SDL_AppResult loadFromRenderedText(struct LTexture *a, void *appstate, char *tex
 void render(struct LTexture *a, void *appstate, float x, float y)
 {
     AppState *as = ((AppState *)appstate);
-    // get the on-screen dimensions of the text. this is necessary for rendering it
-    // SDL_PropertiesID texprops = SDL_GetTextureProperties(messageTexture);
-    // TTF_GetTextSize();
-    const SDL_FRect destTextRect = {
+    const SDL_FRect dstRect = {
         .x = x,
         .y = y,
         .w = a->mWidth,
         .h = a->mHeight,
     };
 
-    SDL_RenderTexture(as->renderer, a->mTexture, NULL, &destTextRect);
+    SDL_RenderTexture(as->renderer, a->mTexture, NULL, &dstRect);
 }
 
 /* This function runs once at startup. */
@@ -122,85 +120,51 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
         return SDL_APP_FAILURE;
     }
 
-    /* Create the window */
-    as->window = SDL_CreateWindow("Window Title", kScreenWidth, kScreenHeight, SDL_WINDOW_RESIZABLE);
-    if (!as->window)
+    // Have the window width&height be the default, may change if resized
+    as->windowWidth = DEFAULT_WINDOW_WIDTH;
+    as->windowHeight = DEFAULT_WINDOW_HEIGHT;
+
+    if (!SDL_CreateWindowAndRenderer("Hello World", as->windowWidth, as->windowHeight, SDL_WINDOW_RESIZABLE, &as->window, &as->renderer))
     {
-        SDL_Log("Couldn't create window: %s\n", SDL_GetError());
+        SDL_Log("Couldn't create window and renderer: %s\n", SDL_GetError());
         return SDL_APP_FAILURE;
     }
 
-    /* Create the renderer */
-    as->renderer = SDL_CreateRenderer(as->window, NULL); // Create renderer, let SDL choose a rendering driver
-    if (!as->renderer)
-    {
-        SDL_Log("Couldn't create renderer: %s\n", SDL_GetError());
-        return SDL_APP_FAILURE;
-    }
-
+    // is this needed?
     // TTF_TextEngine *textEngine = TTF_CreateRendererTextEngine(as->renderer);
     // if (!textEngine)
     // {
     //     SDL_Log("Couldn't create renderer text engine: %s\n", SDL_GetError());
     //     return SDL_APP_FAILURE;
     // }
-    // Log drivers that are available, in the order of priority SDL chooses them.
-    // for (int i = 0; i < SDL_GetNumRenderDrivers(); i++)
-    // {
-    //     SDL_Log("driver: %s\n", SDL_GetRenderDriver(i));
-    // }
-
-    // if (!SDL_CreateWindowAndRenderer("Hello World", kScreenWidth, kScreenHeight, SDL_WINDOW_RESIZABLE, &window, &renderer))
-    // {
-    //     SDL_Log("Couldn't create window and renderer: %s\n", SDL_GetError());
-    //     return SDL_APP_FAILURE;
-    // }
 
     /* Font loading */
-    char fontPath[512]; // since each char in c has a sizeof(char)=1, buf is an array of 512 characters;
+    char fontPath[512]; // fontPath is an array of 512 characters;
     const char *basePath = SDL_GetBasePath();
-    // strcpy(fontPath, basePath); // A buffer overflow can easily happen here if you just move the project to a really long path which exceeds 512 characters.
-    // strcat(fontPath, kFontName);
     SDL_strlcpy(fontPath, basePath, 512);
     SDL_strlcat(fontPath, kFontName, 512);
-    // SDL_Log("%s\n", buf);
-    as->font = TTF_OpenFont(fontPath, 64);
+    as->font = TTF_OpenFont(fontPath, 32);
     if (!as->font)
     {
         SDL_Log("TTF_OpenFont issue: %s\n", SDL_GetError());
         return SDL_APP_FAILURE;
     }
 
-    // render the font to a surface
-    // const char *text = "ttf fonts yay";
     struct SDL_Color textColor = {255, 255, 255, 255};
-    // SDL_Surface *messageSurface = TTF_RenderText_Solid(as->font, text, 0, textColor);
-
-    // make a texture from the surface
-    // SDL_Texture *messageTexture = SDL_CreateTextureFromSurface(as->renderer, messageSurface);
-
-    // we no longer need the font or the surface, so we can destroy those now.
-    // TTF_CloseFont(as->font);
-    // SDL_DestroySurface(messageSurface);
-
-    // get the on-screen dimensions of the text. this is necessary for rendering it
-    // SDL_PropertiesID texprops = SDL_GetTextureProperties(messageTexture);
-    // TTF_GetTextSize();
-    // const SDL_FRect destTextRect = {
-    //     .x = kScreenWidth / 4.0 / 2.0,
-    //     .y = kScreenHeight / 4.0 / 2.0,
-    //     .w = (SDL_GetNumberProperty(texprops, SDL_PROP_TEXTURE_WIDTH_NUMBER, 0)),
-    //     .h = (SDL_GetNumberProperty(texprops, SDL_PROP_TEXTURE_HEIGHT_NUMBER, 0))};
-
-    // struct SDL_Color textColor = {255, 255, 255, 255};
     loadFromRenderedText(&gTextTexture, *appstate, "???", textColor);
-    // as->messageTex = messageTexture;
     return SDL_APP_CONTINUE;
 }
 
 /* This function runs when a new event (mouse input, keypresses, etc) occurs. */
 SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
 {
+    AppState *as = ((AppState *)appstate);
+    if ((event->window).type == SDL_EVENT_WINDOW_RESIZED)
+    {
+        // SDL_Log("resized to %dx%d\n", (event->window).data1, (event->window).data2);
+        as->windowWidth = (event->window).data1;
+        as->windowHeight = (event->window).data2;
+    }
     if (event->type == SDL_EVENT_KEY_DOWN ||
         event->type == SDL_EVENT_QUIT)
     {
@@ -214,18 +178,13 @@ SDL_AppResult SDL_AppIterate(void *appstate)
 {
     AppState *as = ((AppState *)appstate);
     // const float scale = 4.0f;
-    /* Center the message and scale it up */
-    // SDL_GetRenderOutputSize(as->renderer, &w, &h); // why is this needed?
     // SDL_SetRenderScale(as->renderer, scale, scale);
 
     /* Draw the message */
     SDL_SetRenderDrawColor(as->renderer, 0, 0, 0, 255);
     SDL_RenderClear(as->renderer);
-    SDL_SetRenderDrawColor(as->renderer, 255, 255, 255, 255);
-    SDL_RenderTexture(as->renderer, as->messageTex, NULL, &as->messageDest);
+    render(&gTextTexture, appstate, ((as->windowWidth - getWidth(&gTextTexture)) / 2), ((as->windowHeight - getHeight(&gTextTexture)) / 2));
 
-    render(&gTextTexture, appstate, 0, 0);
-    render(&gTextTexture, appstate, ((kScreenWidth - getWidth(&gTextTexture)) / 2), ((kScreenHeight - getHeight(&gTextTexture)) / 2));
     SDL_RenderPresent(as->renderer);
 
     return SDL_APP_CONTINUE;
@@ -234,8 +193,18 @@ SDL_AppResult SDL_AppIterate(void *appstate)
 /* This function runs once at shutdown. */
 void SDL_AppQuit(void *appstate, SDL_AppResult result)
 {
-    AppState *app = ((AppState *)appstate);
-    TTF_CloseFont(app->font);
-    // we no longer need the font or the surface, so we can destroy those now.
-    // SDL_DestroySurface(messageSurface);
+    AppState *as = ((AppState *)appstate);
+    destroy(&gTextTexture);
+    // Clean up fonts
+    TTF_CloseFont(as->font);
+    kFontName = NULL;
+    TTF_Quit();
+    // Clean up window/renderer
+    SDL_DestroyRenderer(as->renderer);
+    SDL_DestroyWindow(as->window);
+    // Clean up appstate
+    SDL_free(as);
+    // Quit subsystems
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    SDL_Quit();
 }
